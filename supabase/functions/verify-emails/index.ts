@@ -138,16 +138,20 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
       return result;
     }
     
-    // Step 2: DNS/MX check
+    // Step 2 & 3: DNS/MX and DMARC check in parallel
     const domain = extractDomain(email);
-    result.dns_valid = await checkDNS(domain);
+    const [dnsValid, dmarcValid] = await Promise.all([
+      checkDNS(domain),
+      checkDMARC(domain)
+    ]);
+    
+    result.dns_valid = dnsValid;
+    result.dmarc_valid = dmarcValid;
+    
     if (!result.dns_valid) {
       result.error_message = "No valid MX records found";
       return result;
     }
-    
-    // Step 3: DMARC check
-    result.dmarc_valid = await checkDMARC(domain);
     
     // Step 4: SMTP check (simplified)
     result.smtp_valid = await checkSMTP(domain);
@@ -190,7 +194,7 @@ serve(async (req) => {
     
     // Process emails in batches for better performance
     const results: EmailVerificationResult[] = [];
-    const batchSize = 10;
+    const batchSize = 50; // Increased batch size for faster processing
     
     for (let i = 0; i < emails.length; i += batchSize) {
       const batch = emails.slice(i, i + batchSize);
@@ -198,11 +202,7 @@ serve(async (req) => {
         batch.map(email => verifyEmail(email))
       );
       results.push(...batchResults);
-      
-      // Small delay to avoid rate limiting
-      if (i + batchSize < emails.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      console.log(`Processed ${results.length}/${emails.length} emails`);
     }
     
     console.log(`Verification complete. Processed ${results.length} emails`);
