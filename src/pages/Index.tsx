@@ -14,6 +14,7 @@ export interface VerificationResult {
   can_send: "yes" | "no";
   syntax_valid: boolean;
   dns_valid: boolean;
+  dmarc_valid: boolean;
   smtp_valid: boolean;
   error_message?: string;
 }
@@ -22,7 +23,7 @@ const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<VerificationResult[]>([]);
-  const [currentStage, setCurrentStage] = useState<"syntax" | "dns" | "smtp">("syntax");
+  const [currentStage, setCurrentStage] = useState<"syntax" | "dns" | "dmarc" | "smtp">("syntax");
   const [totalEmails, setTotalEmails] = useState(0);
   const [processedEmails, setProcessedEmails] = useState(0);
 
@@ -36,18 +37,21 @@ const Index = () => {
 
     try {
       // Simulate stage progression
-      const stages: Array<"syntax" | "dns" | "smtp"> = ["syntax", "dns", "smtp"];
+      const stages: Array<"syntax" | "dns" | "dmarc" | "smtp"> = ["syntax", "dns", "dmarc", "smtp"];
       let stageIndex = 0;
       
       const progressInterval = setInterval(() => {
         setProgress(prev => {
-          const newProgress = prev + 5;
-          if (newProgress >= 33 && stageIndex === 0) {
+          const newProgress = prev + 4;
+          if (newProgress >= 25 && stageIndex === 0) {
             setCurrentStage("dns");
             stageIndex = 1;
-          } else if (newProgress >= 66 && stageIndex === 1) {
-            setCurrentStage("smtp");
+          } else if (newProgress >= 50 && stageIndex === 1) {
+            setCurrentStage("dmarc");
             stageIndex = 2;
+          } else if (newProgress >= 75 && stageIndex === 2) {
+            setCurrentStage("smtp");
+            stageIndex = 3;
           }
           return Math.min(newProgress, 95);
         });
@@ -106,35 +110,44 @@ const Index = () => {
                 How It Works
               </CardTitle>
               <CardDescription>
-                Our 3-stage verification process ensures accurate results
+                Our 4-stage verification process ensures accurate results
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid md:grid-cols-4 gap-4">
                 <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
                   <CheckCircle className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">1. Syntax Check</h3>
+                    <h3 className="font-semibold text-sm mb-1">1. Syntax</h3>
                     <p className="text-xs text-muted-foreground">
-                      Validates email format according to RFC standards
+                      Validates email format
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
                   <AlertCircle className="w-5 h-5 text-info flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">2. DNS/MX Check</h3>
+                    <h3 className="font-semibold text-sm mb-1">2. DNS/MX</h3>
                     <p className="text-xs text-muted-foreground">
-                      Verifies domain has valid mail exchange records
+                      Verifies mail exchange records
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
+                  <Shield className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-sm mb-1">3. DMARC</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Checks email authentication
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
                   <XCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">3. SMTP Check</h3>
+                    <h3 className="font-semibold text-sm mb-1">4. SMTP</h3>
                     <p className="text-xs text-muted-foreground">
-                      Simulates delivery to verify mailbox exists
+                      Simulates delivery
                     </p>
                   </div>
                 </div>

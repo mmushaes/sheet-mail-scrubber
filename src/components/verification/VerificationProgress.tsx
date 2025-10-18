@@ -1,11 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, AlertCircle, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle, AlertCircle, XCircle, Loader2, Shield } from "lucide-react";
 
 interface VerificationProgressProps {
   progress: number;
-  currentStage: "syntax" | "dns" | "smtp";
+  currentStage: "syntax" | "dns" | "dmarc" | "smtp";
   totalEmails: number;
   processedEmails: number;
 }
@@ -28,6 +28,12 @@ export const VerificationProgress = ({
       key: "dns" as const,
       icon: AlertCircle,
       color: "text-info",
+    },
+    {
+      name: "DMARC Check",
+      key: "dmarc" as const,
+      icon: Shield,
+      color: "text-primary",
     },
     {
       name: "SMTP Check",

@@ -11,6 +11,7 @@ interface EmailVerificationResult {
   syntax_valid: boolean;
   dns_valid: boolean;
   smtp_valid: boolean;
+  dmarc_valid: boolean;
   error_message?: string;
 }
 
@@ -38,6 +39,31 @@ async function checkDNS(domain: string): Promise<boolean> {
     return data.Answer && data.Answer.length > 0;
   } catch (error) {
     console.error(`DNS check failed for ${domain}:`, error);
+    return false;
+  }
+}
+
+// Check DMARC records using Google DNS API
+async function checkDMARC(domain: string): Promise<boolean> {
+  try {
+    const dmarcDomain = `_dmarc.${domain}`;
+    const response = await fetch(`https://dns.google/resolve?name=${dmarcDomain}&type=TXT`);
+    const data = await response.json();
+    
+    if (data.Status !== 0) {
+      return false;
+    }
+    
+    // Check if any TXT record contains DMARC policy
+    if (data.Answer && data.Answer.length > 0) {
+      return data.Answer.some((record: any) => 
+        record.data && record.data.toLowerCase().includes('v=dmarc1')
+      );
+    }
+    
+    return false;
+  } catch (error) {
+    console.error(`DMARC check failed for ${domain}:`, error);
     return false;
   }
 }
@@ -101,6 +127,7 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     syntax_valid: false,
     dns_valid: false,
     smtp_valid: false,
+    dmarc_valid: false,
   };
   
   try {
@@ -119,7 +146,10 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
       return result;
     }
     
-    // Step 3: SMTP check (simplified)
+    // Step 3: DMARC check
+    result.dmarc_valid = await checkDMARC(domain);
+    
+    // Step 4: SMTP check (simplified)
     result.smtp_valid = await checkSMTP(domain);
     if (!result.smtp_valid) {
       result.error_message = "SMTP verification failed";
