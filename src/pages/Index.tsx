@@ -6,6 +6,8 @@ import { VerificationProgress } from "@/components/verification/VerificationProg
 import { ResultsTable } from "@/components/verification/ResultsTable";
 import { SummaryStats } from "@/components/verification/SummaryStats";
 import { Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export interface VerificationResult {
   email: string;
@@ -21,13 +23,57 @@ const Index = () => {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<VerificationResult[]>([]);
   const [currentStage, setCurrentStage] = useState<"syntax" | "dns" | "smtp">("syntax");
+  const [totalEmails, setTotalEmails] = useState(0);
+  const [processedEmails, setProcessedEmails] = useState(0);
 
-  const handleStartVerification = (sheetsUrl: string) => {
+  const handleStartVerification = async (sheetsUrl: string) => {
     setIsProcessing(true);
     setProgress(0);
     setResults([]);
-    // TODO: Implement actual verification logic with backend
-    console.log("Starting verification for:", sheetsUrl);
+    setTotalEmails(0);
+    setProcessedEmails(0);
+    setCurrentStage("syntax");
+
+    try {
+      // Simulate stage progression
+      const stages: Array<"syntax" | "dns" | "smtp"> = ["syntax", "dns", "smtp"];
+      let stageIndex = 0;
+      
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          const newProgress = prev + 5;
+          if (newProgress >= 33 && stageIndex === 0) {
+            setCurrentStage("dns");
+            stageIndex = 1;
+          } else if (newProgress >= 66 && stageIndex === 1) {
+            setCurrentStage("smtp");
+            stageIndex = 2;
+          }
+          return Math.min(newProgress, 95);
+        });
+      }, 200);
+
+      const { data, error } = await supabase.functions.invoke('verify-emails', {
+        body: { sheetsUrl }
+      });
+
+      clearInterval(progressInterval);
+
+      if (error) throw error;
+
+      if (data?.results) {
+        setResults(data.results);
+        setTotalEmails(data.results.length);
+        setProcessedEmails(data.results.length);
+        setProgress(100);
+        toast.success(`Verified ${data.results.length} emails successfully!`);
+      }
+    } catch (error: any) {
+      console.error('Verification error:', error);
+      toast.error(error.message || 'Failed to verify emails. Please check the Google Sheets URL.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -115,8 +161,8 @@ const Index = () => {
                 <VerificationProgress
                   progress={progress}
                   currentStage={currentStage}
-                  totalEmails={0}
-                  processedEmails={0}
+                  totalEmails={totalEmails}
+                  processedEmails={processedEmails}
                 />
               )}
             </TabsContent>
