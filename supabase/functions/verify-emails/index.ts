@@ -16,6 +16,9 @@ interface EmailVerificationResult {
   is_role_based: boolean;
   is_free_provider: boolean;
   is_catch_all: boolean;
+  is_spam_trap: boolean;
+  is_abuse: boolean;
+  is_toxic: boolean;
   error_message?: string;
 }
 
@@ -102,6 +105,66 @@ function isFreeProvider(domain: string): boolean {
     'yandex.com', 'live.com', 'msn.com', 'inbox.com', 'fastmail.com'
   ];
   return freeProviders.includes(domain.toLowerCase());
+}
+
+// Check if email is a known spam trap
+function isSpamTrap(email: string): boolean {
+  const domain = extractDomain(email);
+  const localPart = email.split('@')[0].toLowerCase();
+  
+  // Known spam trap domains
+  const spamTrapDomains = [
+    'spamtrap.com', 'honeypot.com', 'blackhole.com', 'sink.com',
+    'spamcop.net', 'deadletter.com'
+  ];
+  
+  // Common spam trap patterns
+  const spamTrapPatterns = [
+    'spam', 'trap', 'honeypot', 'blackhole', 'sink', 'abuse-',
+    'spamtrap', 'deadletter', 'devnull'
+  ];
+  
+  return spamTrapDomains.includes(domain.toLowerCase()) ||
+    spamTrapPatterns.some(pattern => localPart.includes(pattern));
+}
+
+// Check if email is known for abuse/high complaints
+function isAbuseEmail(email: string): boolean {
+  const domain = extractDomain(email);
+  const localPart = email.split('@')[0].toLowerCase();
+  
+  // Known high-complaint domains (examples)
+  const abuseDomains = [
+    'complainbot.com', 'abuseme.com', 'spamreport.net'
+  ];
+  
+  // Abuse-related patterns
+  const abusePatterns = [
+    'complaint', 'report-spam', 'abuse-report', 'spam-report'
+  ];
+  
+  return abuseDomains.includes(domain.toLowerCase()) ||
+    abusePatterns.some(pattern => localPart.includes(pattern));
+}
+
+// Check if email is on toxic/suppression list
+function isToxicEmail(email: string): boolean {
+  const domain = extractDomain(email);
+  const localPart = email.split('@')[0].toLowerCase();
+  
+  // Toxic/suppression patterns
+  const toxicPatterns = [
+    'bounce', 'unsubscribe', 'optout', 'opt-out', 'remove',
+    'donotmail', 'do-not-mail', 'suppress', 'block', 'blacklist'
+  ];
+  
+  // Known suppression domains
+  const suppressionDomains = [
+    'donotmail.com', 'suppression.net', 'blacklist.com'
+  ];
+  
+  return suppressionDomains.includes(domain.toLowerCase()) ||
+    toxicPatterns.some(pattern => localPart.includes(pattern));
 }
 
 // Check if domain has catch-all enabled using DNS patterns
@@ -193,6 +256,9 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     is_role_based: false,
     is_free_provider: false,
     is_catch_all: false,
+    is_spam_trap: false,
+    is_abuse: false,
+    is_toxic: false,
   };
   
   try {
@@ -209,6 +275,9 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     result.is_disposable = isDisposableEmail(domain);
     result.is_role_based = isRoleBasedEmail(email);
     result.is_free_provider = isFreeProvider(domain);
+    result.is_spam_trap = isSpamTrap(email);
+    result.is_abuse = isAbuseEmail(email);
+    result.is_toxic = isToxicEmail(email);
     
     // Step 2 & 3: DNS/MX, DMARC, and Catch-all check in parallel
     const [dnsValid, dmarcValid, isCatchAll] = await Promise.all([
@@ -234,10 +303,19 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     }
     
     // Determine if we can send based on all checks
-    // Fail if disposable or has critical issues
+    // Fail if disposable, spam trap, abuse, toxic, or has critical issues
     if (result.is_disposable) {
       result.can_send = "no";
       result.error_message = "Disposable/temporary email address";
+    } else if (result.is_spam_trap) {
+      result.can_send = "no";
+      result.error_message = "Known spam trap address";
+    } else if (result.is_abuse) {
+      result.can_send = "no";
+      result.error_message = "High-complaint/abuse address";
+    } else if (result.is_toxic) {
+      result.can_send = "no";
+      result.error_message = "Toxic/suppression list address";
     } else if (result.syntax_valid && result.dns_valid && result.smtp_valid) {
       result.can_send = "yes";
     }

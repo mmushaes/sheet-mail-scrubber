@@ -20,6 +20,9 @@ export interface VerificationResult {
   is_role_based: boolean;
   is_free_provider: boolean;
   is_catch_all: boolean;
+  is_spam_trap: boolean;
+  is_abuse: boolean;
+  is_toxic: boolean;
   error_message?: string;
 }
 
