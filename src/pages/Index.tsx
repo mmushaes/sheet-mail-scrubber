@@ -16,6 +16,14 @@ export interface VerificationResult {
   dns_valid: boolean;
   dmarc_valid: boolean;
   smtp_valid: boolean;
+  smtp_details?: {
+    mx: string;
+    code: number;
+    message: string;
+    tls: boolean;
+    latency_ms: number;
+    status: "valid" | "invalid" | "temp_error" | "unknown" | "catch_all";
+  };
   is_disposable: boolean;
   is_role_based: boolean;
   is_free_provider: boolean;

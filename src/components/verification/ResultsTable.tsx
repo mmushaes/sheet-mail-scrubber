@@ -11,7 +11,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckCircle, XCircle, Download, Search, Shield, AlertTriangle, Mail, Server, Bug, Ban, Skull } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CheckCircle, XCircle, Download, Search, Shield, AlertTriangle, Mail, Server, Bug, Ban, Skull, Info } from "lucide-react";
 import { VerificationResult } from "@/pages/Index";
 
 interface ResultsTableProps {
@@ -142,11 +143,32 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {result.smtp_valid ? (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-destructive mx-auto" />
-                      )}
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center justify-center gap-1 cursor-help">
+                              {result.smtp_valid ? (
+                                <CheckCircle className="w-4 h-4 text-success" />
+                              ) : (
+                                <XCircle className="w-4 h-4 text-destructive" />
+                              )}
+                              {result.smtp_details && <Info className="w-3 h-3 text-muted-foreground" />}
+                            </div>
+                          </TooltipTrigger>
+                          {result.smtp_details && (
+                            <TooltipContent className="max-w-sm">
+                              <div className="space-y-1 text-xs">
+                                <p><strong>MX:</strong> {result.smtp_details.mx}</p>
+                                <p><strong>Code:</strong> {result.smtp_details.code}</p>
+                                <p><strong>Message:</strong> {result.smtp_details.message}</p>
+                                <p><strong>TLS:</strong> {result.smtp_details.tls ? 'Yes' : 'No'}</p>
+                                <p><strong>Latency:</strong> {result.smtp_details.latency_ms}ms</p>
+                                <p><strong>Status:</strong> {result.smtp_details.status}</p>
+                              </div>
+                            </TooltipContent>
+                          )}
+                        </Tooltip>
+                      </TooltipProvider>
                     </TableCell>
                     <TableCell className="text-center">
                       {result.is_disposable ? (

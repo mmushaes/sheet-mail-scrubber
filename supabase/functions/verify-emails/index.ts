@@ -11,6 +11,14 @@ interface EmailVerificationResult {
   syntax_valid: boolean;
   dns_valid: boolean;
   smtp_valid: boolean;
+  smtp_details?: {
+    mx: string;
+    code: number;
+    message: string;
+    tls: boolean;
+    latency_ms: number;
+    status: "valid" | "invalid" | "temp_error" | "unknown" | "catch_all";
+  };
   dmarc_valid: boolean;
   is_disposable: boolean;
   is_role_based: boolean;
@@ -21,6 +29,16 @@ interface EmailVerificationResult {
   is_toxic: boolean;
   error_message?: string;
 }
+
+// SMTP configuration
+const SMTP_CONFIG = {
+  TIMEOUT_MS: 5000,
+  MAX_RETRIES: 1,
+  BATCH_SIZE: 50,
+  MAX_WORKERS: 200,
+  MAX_CONCURRENT_PER_DOMAIN: 5,
+  VERIFY_EMAIL: "verify@emailverifier.dev",
+};
 
 // Validate email syntax
 function validateEmailSyntax(email: string): boolean {
@@ -33,20 +51,29 @@ function extractDomain(email: string): string {
   return email.split('@')[1];
 }
 
-// Check DNS/MX records using Google DNS API
-async function checkDNS(domain: string): Promise<boolean> {
+// Get MX records with priority sorting
+async function getMXRecords(domain: string): Promise<Array<{ priority: number; exchange: string }>> {
   try {
     const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`);
     const data = await response.json();
     
-    if (data.Status !== 0) {
-      return false;
+    if (data.Status !== 0 || !data.Answer || data.Answer.length === 0) {
+      return [];
     }
     
-    return data.Answer && data.Answer.length > 0;
+    // Parse MX records and sort by priority
+    const mxRecords = data.Answer.map((record: any) => {
+      const parts = record.data.split(' ');
+      return {
+        priority: parseInt(parts[0]),
+        exchange: parts[1].replace(/\.$/, ''), // Remove trailing dot
+      };
+    }).sort((a: any, b: any) => a.priority - b.priority);
+    
+    return mxRecords;
   } catch (error) {
-    console.error(`DNS check failed for ${domain}:`, error);
-    return false;
+    console.error(`MX lookup failed for ${domain}:`, error);
+    return [];
   }
 }
 
@@ -243,8 +270,193 @@ async function fetchGoogleSheetAsCSV(sheetsUrl: string): Promise<string[]> {
   }
 }
 
+// Helper to read SMTP response with timeout
+async function readSMTPResponse(reader: ReadableStreamDefaultReader<Uint8Array>, timeout: number): Promise<string> {
+  const decoder = new TextDecoder();
+  let response = '';
+  
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error('SMTP read timeout')), timeout)
+  );
+  
+  const readPromise = (async () => {
+    const chunks: Uint8Array[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      response = decoder.decode(new Uint8Array(chunks.flatMap(c => Array.from(c))));
+      // Check if we have a complete response (ends with \r\n)
+      if (response.includes('\r\n')) break;
+    }
+    return response;
+  })();
+  
+  return await Promise.race([readPromise, timeoutPromise]);
+}
+
+// Helper to write SMTP command
+async function writeSMTPCommand(writer: WritableStreamDefaultWriter<Uint8Array>, command: string): Promise<void> {
+  const encoder = new TextEncoder();
+  await writer.write(encoder.encode(command + '\r\n'));
+}
+
+// Perform actual SMTP mailbox check
+async function performSMTPCheck(
+  email: string, 
+  mx: string, 
+  retryCount = 0
+): Promise<EmailVerificationResult['smtp_details']> {
+  const startTime = Date.now();
+  let conn: Deno.TcpConn | null = null;
+  
+  try {
+    // Connect to MX server on port 25
+    conn = await Promise.race([
+      Deno.connect({ hostname: mx, port: 25 }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), SMTP_CONFIG.TIMEOUT_MS)
+      )
+    ]);
+    
+    const reader = conn.readable.getReader();
+    const writer = conn.writable.getWriter();
+    let tlsEnabled = false;
+    
+    // Read greeting
+    const greeting = await readSMTPResponse(reader, SMTP_CONFIG.TIMEOUT_MS);
+    const greetingCode = parseInt(greeting.substring(0, 3));
+    
+    if (greetingCode !== 220) {
+      return {
+        mx,
+        code: greetingCode,
+        message: greeting.trim(),
+        tls: false,
+        latency_ms: Date.now() - startTime,
+        status: 'unknown',
+      };
+    }
+    
+    // Send EHLO
+    await writeSMTPCommand(writer, `EHLO ${SMTP_CONFIG.VERIFY_EMAIL.split('@')[1]}`);
+    const ehloResponse = await readSMTPResponse(reader, SMTP_CONFIG.TIMEOUT_MS);
+    
+    // Check if STARTTLS is supported
+    if (ehloResponse.includes('STARTTLS')) {
+      tlsEnabled = true;
+      // Note: Actual STARTTLS implementation would require TLS handshake
+      // For now we just note that it's available
+    }
+    
+    // Send MAIL FROM
+    await writeSMTPCommand(writer, `MAIL FROM:<${SMTP_CONFIG.VERIFY_EMAIL}>`);
+    const mailFromResponse = await readSMTPResponse(reader, SMTP_CONFIG.TIMEOUT_MS);
+    const mailFromCode = parseInt(mailFromResponse.substring(0, 3));
+    
+    if (mailFromCode !== 250) {
+      return {
+        mx,
+        code: mailFromCode,
+        message: mailFromResponse.trim(),
+        tls: tlsEnabled,
+        latency_ms: Date.now() - startTime,
+        status: 'unknown',
+      };
+    }
+    
+    // Send RCPT TO - this is the actual mailbox check
+    await writeSMTPCommand(writer, `RCPT TO:<${email}>`);
+    const rcptResponse = await readSMTPResponse(reader, SMTP_CONFIG.TIMEOUT_MS);
+    const rcptCode = parseInt(rcptResponse.substring(0, 3));
+    
+    // Send QUIT
+    await writeSMTPCommand(writer, 'QUIT');
+    await readSMTPResponse(reader, 1000).catch(() => {}); // Don't wait long for quit response
+    
+    // Determine status based on response code
+    let status: "valid" | "invalid" | "temp_error" | "unknown" | "catch_all" = 'unknown';
+    if (rcptCode === 250 || rcptCode === 251) {
+      status = 'valid';
+    } else if (rcptCode >= 500 && rcptCode < 600) {
+      status = 'invalid';
+    } else if (rcptCode >= 400 && rcptCode < 500) {
+      status = 'temp_error';
+      // Retry on 4xx errors
+      if (retryCount < SMTP_CONFIG.MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        return performSMTPCheck(email, mx, retryCount + 1);
+      }
+    } else if (rcptResponse.toLowerCase().includes('catch') || rcptResponse.toLowerCase().includes('accept all')) {
+      status = 'catch_all';
+    }
+    
+    return {
+      mx,
+      code: rcptCode,
+      message: rcptResponse.trim(),
+      tls: tlsEnabled,
+      latency_ms: Date.now() - startTime,
+      status,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Retry on connection errors
+    if (retryCount < SMTP_CONFIG.MAX_RETRIES && !errorMessage.includes('timeout')) {
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+      return performSMTPCheck(email, mx, retryCount + 1);
+    }
+    
+    return {
+      mx,
+      code: 0,
+      message: errorMessage,
+      tls: false,
+      latency_ms: Date.now() - startTime,
+      status: 'unknown',
+    };
+  } finally {
+    if (conn) {
+      try {
+        conn.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+  }
+}
+
+// Domain-based concurrency limiter
+class DomainConcurrencyLimiter {
+  private domainQueues: Map<string, number> = new Map();
+  private globalActive = 0;
+  
+  async acquire(domain: string): Promise<void> {
+    while (
+      this.globalActive >= SMTP_CONFIG.MAX_WORKERS ||
+      (this.domainQueues.get(domain) || 0) >= SMTP_CONFIG.MAX_CONCURRENT_PER_DOMAIN
+    ) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    this.domainQueues.set(domain, (this.domainQueues.get(domain) || 0) + 1);
+    this.globalActive++;
+  }
+  
+  release(domain: string): void {
+    const current = this.domainQueues.get(domain) || 0;
+    if (current > 0) {
+      this.domainQueues.set(domain, current - 1);
+    }
+    if (this.globalActive > 0) {
+      this.globalActive--;
+    }
+  }
+}
+
 // Verify a single email
-async function verifyEmail(email: string): Promise<EmailVerificationResult> {
+async function verifyEmail(email: string, limiter?: DomainConcurrencyLimiter): Promise<EmailVerificationResult> {
   const result: EmailVerificationResult = {
     email,
     can_send: "no",
@@ -279,26 +491,43 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     result.is_abuse = isAbuseEmail(email);
     result.is_toxic = isToxicEmail(email);
     
-    // Step 2 & 3: DNS/MX, DMARC, and Catch-all check in parallel
-    const [dnsValid, dmarcValid, isCatchAll] = await Promise.all([
-      checkDNS(domain),
-      checkDMARC(domain),
-      isCatchAllDomain(domain)
+    // Step 2: Get MX records and check DMARC in parallel
+    const [mxRecords, dmarcValid] = await Promise.all([
+      getMXRecords(domain),
+      checkDMARC(domain)
     ]);
     
-    result.dns_valid = dnsValid;
+    result.dns_valid = mxRecords.length > 0;
     result.dmarc_valid = dmarcValid;
-    result.is_catch_all = isCatchAll;
     
     if (!result.dns_valid) {
       result.error_message = "No valid MX records found";
       return result;
     }
     
-    // Step 4: SMTP check (simplified)
-    result.smtp_valid = await checkSMTP(domain);
-    if (!result.smtp_valid) {
-      result.error_message = "SMTP verification failed";
+    // Step 3: Perform actual SMTP check with the primary MX
+    const primaryMX = mxRecords[0].exchange;
+    
+    if (limiter) {
+      await limiter.acquire(domain);
+    }
+    
+    try {
+      result.smtp_details = await performSMTPCheck(email, primaryMX);
+      result.smtp_valid = (result.smtp_details?.status === 'valid' || result.smtp_details?.status === 'catch_all') ?? false;
+      
+      // Update catch-all flag based on SMTP response
+      if (result.smtp_details?.status === 'catch_all') {
+        result.is_catch_all = true;
+      }
+    } finally {
+      if (limiter) {
+        limiter.release(domain);
+      }
+    }
+    
+    if (!result.smtp_valid && result.smtp_details?.status !== 'temp_error') {
+      result.error_message = result.smtp_details?.message || "SMTP verification failed";
       return result;
     }
     
@@ -350,17 +579,22 @@ serve(async (req) => {
       throw new Error('No emails found in the sheet');
     }
     
-    // Process emails in batches for better performance
+    // Process emails in batches with concurrency control
     const results: EmailVerificationResult[] = [];
-    const batchSize = 50; // Increased batch size for faster processing
+    const limiter = new DomainConcurrencyLimiter();
     
-    for (let i = 0; i < emails.length; i += batchSize) {
-      const batch = emails.slice(i, i + batchSize);
+    for (let i = 0; i < emails.length; i += SMTP_CONFIG.BATCH_SIZE) {
+      const batch = emails.slice(i, i + SMTP_CONFIG.BATCH_SIZE);
       const batchResults = await Promise.all(
-        batch.map(email => verifyEmail(email))
+        batch.map(email => verifyEmail(email, limiter))
       );
       results.push(...batchResults);
       console.log(`Processed ${results.length}/${emails.length} emails`);
+      
+      // Small delay between batches to avoid overwhelming
+      if (i + SMTP_CONFIG.BATCH_SIZE < emails.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
     
     console.log(`Verification complete. Processed ${results.length} emails`);
