@@ -16,6 +16,10 @@ export interface VerificationResult {
   dns_valid: boolean;
   dmarc_valid: boolean;
   smtp_valid: boolean;
+  is_disposable: boolean;
+  is_role_based: boolean;
+  is_free_provider: boolean;
+  is_catch_all: boolean;
   error_message?: string;
 }
 

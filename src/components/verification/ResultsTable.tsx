@@ -11,7 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckCircle, XCircle, Download, Search, Shield } from "lucide-react";
+import { CheckCircle, XCircle, Download, Search, Shield, AlertTriangle, Mail, Server } from "lucide-react";
 import { VerificationResult } from "@/pages/Index";
 
 interface ResultsTableProps {
@@ -99,13 +99,17 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                 <TableHead className="text-center">DNS/MX</TableHead>
                 <TableHead className="text-center">DMARC</TableHead>
                 <TableHead className="text-center">SMTP</TableHead>
+                <TableHead className="text-center">Disposable</TableHead>
+                <TableHead className="text-center">Role-Based</TableHead>
+                <TableHead className="text-center">Free Provider</TableHead>
+                <TableHead className="text-center">Catch-All</TableHead>
                 <TableHead className="text-center">Can Send</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredResults.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                     No results to display
                   </TableCell>
                 </TableRow>
@@ -139,6 +143,34 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                         <CheckCircle className="w-4 h-4 text-success mx-auto" />
                       ) : (
                         <XCircle className="w-4 h-4 text-destructive mx-auto" />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.is_disposable ? (
+                        <AlertTriangle className="w-4 h-4 text-destructive mx-auto" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.is_role_based ? (
+                        <Mail className="w-4 h-4 text-warning mx-auto" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.is_free_provider ? (
+                        <Server className="w-4 h-4 text-info mx-auto" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-muted-foreground mx-auto" />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.is_catch_all ? (
+                        <AlertTriangle className="w-4 h-4 text-warning mx-auto" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">

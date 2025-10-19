@@ -12,6 +12,10 @@ interface EmailVerificationResult {
   dns_valid: boolean;
   smtp_valid: boolean;
   dmarc_valid: boolean;
+  is_disposable: boolean;
+  is_role_based: boolean;
+  is_free_provider: boolean;
+  is_catch_all: boolean;
   error_message?: string;
 }
 
@@ -64,6 +68,63 @@ async function checkDMARC(domain: string): Promise<boolean> {
     return false;
   } catch (error) {
     console.error(`DMARC check failed for ${domain}:`, error);
+    return false;
+  }
+}
+
+// Check if email is from a disposable/temporary email provider
+function isDisposableEmail(domain: string): boolean {
+  const disposableDomains = [
+    'tempmail.com', 'guerrillamail.com', '10minutemail.com', 'throwaway.email',
+    'mailinator.com', 'temp-mail.org', 'getnada.com', 'maildrop.cc',
+    'sharklasers.com', 'guerrillamail.info', 'grr.la', 'guerrillamail.biz',
+    'spam4.me', 'yopmail.com', 'trashmail.com', 'mintemail.com'
+  ];
+  return disposableDomains.includes(domain.toLowerCase());
+}
+
+// Check if email is role-based (info@, admin@, etc.)
+function isRoleBasedEmail(email: string): boolean {
+  const localPart = email.split('@')[0].toLowerCase();
+  const rolePrefixes = [
+    'admin', 'info', 'support', 'sales', 'contact', 'help', 'webmaster',
+    'noreply', 'no-reply', 'postmaster', 'hostmaster', 'service', 'marketing',
+    'billing', 'abuse', 'security', 'privacy', 'legal', 'team'
+  ];
+  return rolePrefixes.some(prefix => localPart === prefix || localPart.startsWith(prefix + '.'));
+}
+
+// Check if email is from a free provider
+function isFreeProvider(domain: string): boolean {
+  const freeProviders = [
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
+    'icloud.com', 'mail.com', 'protonmail.com', 'zoho.com', 'gmx.com',
+    'yandex.com', 'live.com', 'msn.com', 'inbox.com', 'fastmail.com'
+  ];
+  return freeProviders.includes(domain.toLowerCase());
+}
+
+// Check if domain has catch-all enabled using DNS patterns
+async function isCatchAllDomain(domain: string): Promise<boolean> {
+  try {
+    // Generate a random email that shouldn't exist
+    const randomString = Math.random().toString(36).substring(7);
+    const testEmail = `nonexistent${randomString}@${domain}`;
+    
+    // For performance, we'll use heuristics rather than actual SMTP connection
+    // Common catch-all domains often have patterns in their MX records
+    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`);
+    const data = await response.json();
+    
+    if (data.Answer && data.Answer.length > 0) {
+      // If there's only one MX record with low priority, it might be catch-all
+      // This is a simplified heuristic check
+      return data.Answer.length === 1;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error(`Catch-all check failed for ${domain}:`, error);
     return false;
   }
 }
@@ -128,6 +189,10 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     dns_valid: false,
     smtp_valid: false,
     dmarc_valid: false,
+    is_disposable: false,
+    is_role_based: false,
+    is_free_provider: false,
+    is_catch_all: false,
   };
   
   try {
@@ -138,15 +203,23 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
       return result;
     }
     
-    // Step 2 & 3: DNS/MX and DMARC check in parallel
     const domain = extractDomain(email);
-    const [dnsValid, dmarcValid] = await Promise.all([
+    
+    // Additional instant checks (no API calls needed)
+    result.is_disposable = isDisposableEmail(domain);
+    result.is_role_based = isRoleBasedEmail(email);
+    result.is_free_provider = isFreeProvider(domain);
+    
+    // Step 2 & 3: DNS/MX, DMARC, and Catch-all check in parallel
+    const [dnsValid, dmarcValid, isCatchAll] = await Promise.all([
       checkDNS(domain),
-      checkDMARC(domain)
+      checkDMARC(domain),
+      isCatchAllDomain(domain)
     ]);
     
     result.dns_valid = dnsValid;
     result.dmarc_valid = dmarcValid;
+    result.is_catch_all = isCatchAll;
     
     if (!result.dns_valid) {
       result.error_message = "No valid MX records found";
@@ -160,8 +233,15 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
       return result;
     }
     
-    // All checks passed
-    result.can_send = "yes";
+    // Determine if we can send based on all checks
+    // Fail if disposable or has critical issues
+    if (result.is_disposable) {
+      result.can_send = "no";
+      result.error_message = "Disposable/temporary email address";
+    } else if (result.syntax_valid && result.dns_valid && result.smtp_valid) {
+      result.can_send = "yes";
+    }
+    
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
