@@ -19,18 +19,13 @@ interface EmailVerificationResult {
   error_message?: string;
 }
 
-// Configuration
+// Configuration - optimized for edge function CPU limits
 const CONFIG = {
-  DNS_TIMEOUT_MS: 5000,
-  BATCH_TIMEOUT_MS: 45000,
-  BATCH_SIZE: 100,
+  DNS_TIMEOUT_MS: 4000,
+  BATCH_SIZE: 50, // Smaller batches to avoid CPU timeout
   MAX_EMAILS: 5000,
-  THROTTLE_MS: 10, // 100 emails/sec = 10ms between emails
-  CACHE_TTL_MS: 24 * 60 * 60 * 1000, // 24 hours
+  MAX_CONCURRENT: 25, // Limit concurrent DNS requests
 };
-
-// In-memory cache for domain results
-const domainCache = new Map<string, { result: any; timestamp: number }>();
 
 // Known mail exchanger patterns
 const KNOWN_MX_PATTERNS = {
@@ -361,21 +356,24 @@ async function fetchGoogleSheetAsCSV(sheetsUrl: string): Promise<string[]> {
   }
 }
 
-// Get cached domain result
-function getCachedDomainResult(domain: string): any | null {
-  const cached = domainCache.get(domain);
-  if (cached && Date.now() - cached.timestamp < CONFIG.CACHE_TTL_MS) {
-    return cached.result;
+// Process in controlled batches with concurrency limit
+async function processBatch<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = [];
+  
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
   }
-  return null;
+  
+  return results;
 }
 
-// Cache domain result
-function cacheDomainResult(domain: string, result: any): void {
-  domainCache.set(domain, { result, timestamp: Date.now() });
-}
-
-// Verify a single email with caching
+// Verify a single email (simplified, no caching)
 async function verifyEmail(email: string): Promise<EmailVerificationResult> {
   const result: EmailVerificationResult = {
     email,
@@ -404,7 +402,6 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
     // Instant checks
     result.disposable = isDisposableEmail(domain);
     result.role_account = isRoleBasedEmail(email);
-    const isFree = isFreeProvider(domain);
     const isSpamTrapEmail = isSpamTrap(email);
     const isAbuseAddr = isAbuseEmail(email);
     const isToxicAddr = isToxicEmail(email);
@@ -416,30 +413,13 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
       return result;
     }
     
-    // Check cache
-    const cached = getCachedDomainResult(domain);
-    let domainExists: boolean;
-    let mxRecords: Array<{ priority: number; exchange: string }>;
-    let hasSPF: boolean;
-    let hasDMARC: boolean;
-    
-    if (cached) {
-      domainExists = cached.domainExists;
-      mxRecords = cached.mxRecords;
-      hasSPF = cached.hasSPF;
-      hasDMARC = cached.hasDMARC;
-    } else {
-      // Parallel DNS checks
-      [domainExists, mxRecords, hasSPF, hasDMARC] = await Promise.all([
-        checkDomainExists(domain),
-        getMXRecords(domain),
-        checkSPF(domain),
-        checkDMARC(domain),
-      ]);
-      
-      // Cache domain result
-      cacheDomainResult(domain, { domainExists, mxRecords, hasSPF, hasDMARC });
-    }
+    // Parallel DNS checks
+    const [domainExists, mxRecords, hasSPF, hasDMARC] = await Promise.all([
+      checkDomainExists(domain),
+      getMXRecords(domain),
+      checkSPF(domain),
+      checkDMARC(domain),
+    ]);
     
     result.domain_exists = domainExists;
     result.mx_found = mxRecords.length > 0;
@@ -480,11 +460,6 @@ async function verifyEmail(email: string): Promise<EmailVerificationResult> {
   }
 }
 
-// Throttle function
-async function throttle(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -511,37 +486,27 @@ serve(async (req) => {
       emails = emails.slice(0, CONFIG.MAX_EMAILS);
     }
     
-    console.log(`Processing ${emails.length} emails`);
+    console.log(`Processing ${emails.length} emails in batches of ${CONFIG.BATCH_SIZE}`);
     
-    // Process emails in batches with throttling
+    // Process emails in smaller batches with controlled concurrency
     const results: EmailVerificationResult[] = [];
     
     for (let i = 0; i < emails.length; i += CONFIG.BATCH_SIZE) {
       const batchStartTime = Date.now();
       const batch = emails.slice(i, i + CONFIG.BATCH_SIZE);
       
-      // Process batch with timeout protection
-      try {
-        const batchPromises = batch.map(async (email, index) => {
-          await throttle(CONFIG.THROTTLE_MS * index); // Throttle to 100 emails/sec
-          return verifyEmail(email);
-        });
-        
-        const batchResults = await Promise.race([
-          Promise.all(batchPromises),
-          new Promise<EmailVerificationResult[]>((_, reject) => 
-            setTimeout(() => reject(new Error('Batch timeout')), CONFIG.BATCH_TIMEOUT_MS)
-          )
-        ]);
-        
-        results.push(...batchResults);
-      } catch (error) {
-        console.error(`Batch ${i / CONFIG.BATCH_SIZE} timed out, continuing...`);
-        // Continue with next batch even if this one times out
-      }
+      // Process with controlled concurrency
+      const batchResults = await processBatch(
+        batch,
+        verifyEmail,
+        CONFIG.MAX_CONCURRENT
+      );
+      
+      results.push(...batchResults);
       
       const batchTime = Date.now() - batchStartTime;
-      console.log(`Batch ${i / CONFIG.BATCH_SIZE + 1}: Processed ${results.length}/${emails.length} emails in ${batchTime}ms`);
+      const batchNum = Math.floor(i / CONFIG.BATCH_SIZE) + 1;
+      console.log(`Batch ${batchNum}: Processed ${results.length}/${emails.length} emails in ${batchTime}ms`);
     }
     
     console.log(`Verification complete. Processed ${results.length} emails`);
