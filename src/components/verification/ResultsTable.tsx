@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CheckCircle, XCircle, Download, Search, Shield, AlertTriangle, Mail, Server, Bug, Ban, Skull, Info } from "lucide-react";
+import { CheckCircle, XCircle, Download, Search, Shield, AlertTriangle, Mail } from "lucide-react";
 import { VerificationResult } from "@/pages/Index";
 
 interface ResultsTableProps {
@@ -33,8 +33,52 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
   });
 
   const handleExport = () => {
-    // TODO: Implement CSV export or Google Sheets creation
-    console.log("Exporting results:", results);
+    // Create CSV content
+    const headers = [
+      "Email",
+      "Can Send",
+      "Status",
+      "SMTP Score",
+      "Syntax Valid",
+      "Domain Exists",
+      "MX Found",
+      "DMARC Valid",
+      "Disposable",
+      "Role Account",
+      "Catch All",
+      "Error Message"
+    ];
+    
+    const rows = results.map(r => [
+      r.email,
+      r.can_send || "no",
+      r.status,
+      r.smtp_score,
+      r.syntax_valid ? "Yes" : "No",
+      r.domain_exists ? "Yes" : "No",
+      r.mx_found ? "Yes" : "No",
+      r.dmarc_valid ? "Yes" : "No",
+      r.disposable ? "Yes" : "No",
+      r.role_account ? "Yes" : "No",
+      r.catch_all ? "Yes" : "No",
+      r.error_message || ""
+    ]);
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+    
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `email-verification-results-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -96,24 +140,22 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
             <TableHeader>
               <TableRow>
                 <TableHead>Email Address</TableHead>
-                <TableHead className="text-center">Syntax</TableHead>
-                <TableHead className="text-center">DNS/MX</TableHead>
-                <TableHead className="text-center">DMARC</TableHead>
-                <TableHead className="text-center">SMTP</TableHead>
-                <TableHead className="text-center">Disposable</TableHead>
-                <TableHead className="text-center">Role-Based</TableHead>
-                <TableHead className="text-center">Free Provider</TableHead>
-                <TableHead className="text-center">Catch-All</TableHead>
-                <TableHead className="text-center">Spam Trap</TableHead>
-                <TableHead className="text-center">Abuse</TableHead>
-                <TableHead className="text-center">Toxic</TableHead>
                 <TableHead className="text-center">Can Send</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-center">SMTP Score</TableHead>
+                <TableHead className="text-center">Syntax</TableHead>
+                <TableHead className="text-center">Domain</TableHead>
+                <TableHead className="text-center">MX</TableHead>
+                <TableHead className="text-center">DMARC</TableHead>
+                <TableHead className="text-center">Disposable</TableHead>
+                <TableHead className="text-center">Role</TableHead>
+                <TableHead className="text-center">Catch-All</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredResults.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                     No results to display
                   </TableCell>
                 </TableRow>
@@ -122,6 +164,42 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                   <TableRow key={index}>
                     <TableCell className="font-mono text-sm">{result.email}</TableCell>
                     <TableCell className="text-center">
+                      <Badge
+                        variant={result.can_send === "yes" ? "default" : "destructive"}
+                        className={
+                          result.can_send === "yes"
+                            ? "bg-success text-success-foreground"
+                            : ""
+                        }
+                      >
+                        {result.can_send}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge
+                        variant={
+                          result.status === "valid" ? "default" : 
+                          result.status === "risky" ? "secondary" : 
+                          result.status === "invalid" ? "destructive" : "outline"
+                        }
+                        className={
+                          result.status === "valid" ? "bg-success text-success-foreground" :
+                          result.status === "risky" ? "bg-warning text-warning-foreground" : ""
+                        }
+                      >
+                        {result.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className={`font-semibold ${
+                        result.smtp_score >= 90 ? "text-success" :
+                        result.smtp_score >= 60 ? "text-warning" :
+                        "text-destructive"
+                      }`}>
+                        {result.smtp_score}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
                       {result.syntax_valid ? (
                         <CheckCircle className="w-4 h-4 text-success mx-auto" />
                       ) : (
@@ -129,7 +207,14 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {result.dns_valid ? (
+                      {result.domain_exists ? (
+                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-destructive mx-auto" />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {result.mx_found ? (
                         <CheckCircle className="w-4 h-4 text-success mx-auto" />
                       ) : (
                         <XCircle className="w-4 h-4 text-destructive mx-auto" />
@@ -143,93 +228,25 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center justify-center gap-1 cursor-help">
-                              {result.smtp_valid ? (
-                                <CheckCircle className="w-4 h-4 text-success" />
-                              ) : (
-                                <XCircle className="w-4 h-4 text-destructive" />
-                              )}
-                              {result.smtp_details && <Info className="w-3 h-3 text-muted-foreground" />}
-                            </div>
-                          </TooltipTrigger>
-                          {result.smtp_details && (
-                            <TooltipContent className="max-w-sm">
-                              <div className="space-y-1 text-xs">
-                                <p><strong>MX:</strong> {result.smtp_details.mx}</p>
-                                <p><strong>Code:</strong> {result.smtp_details.code}</p>
-                                <p><strong>Message:</strong> {result.smtp_details.message}</p>
-                                <p><strong>TLS:</strong> {result.smtp_details.tls ? 'Yes' : 'No'}</p>
-                                <p><strong>Latency:</strong> {result.smtp_details.latency_ms}ms</p>
-                                <p><strong>Status:</strong> {result.smtp_details.status}</p>
-                              </div>
-                            </TooltipContent>
-                          )}
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {result.is_disposable ? (
+                      {result.disposable ? (
                         <AlertTriangle className="w-4 h-4 text-destructive mx-auto" />
                       ) : (
                         <CheckCircle className="w-4 h-4 text-success mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {result.is_role_based ? (
+                      {result.role_account ? (
                         <Mail className="w-4 h-4 text-warning mx-auto" />
                       ) : (
                         <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {result.is_free_provider ? (
-                        <Server className="w-4 h-4 text-info mx-auto" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-muted-foreground mx-auto" />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {result.is_catch_all ? (
+                      {result.catch_all ? (
                         <AlertTriangle className="w-4 h-4 text-warning mx-auto" />
                       ) : (
                         <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
                       )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {result.is_spam_trap ? (
-                        <Bug className="w-4 h-4 text-destructive mx-auto" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {result.is_abuse ? (
-                        <Ban className="w-4 h-4 text-destructive mx-auto" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {result.is_toxic ? (
-                        <Skull className="w-4 h-4 text-destructive mx-auto" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge
-                        variant={result.can_send === "yes" ? "default" : "destructive"}
-                        className={
-                          result.can_send === "yes"
-                            ? "bg-success text-success-foreground"
-                            : ""
-                        }
-                      >
-                        {result.can_send}
-                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))

@@ -11,27 +11,18 @@ import { toast } from "sonner";
 
 export interface VerificationResult {
   email: string;
-  can_send: "yes" | "no";
   syntax_valid: boolean;
-  dns_valid: boolean;
+  domain_exists: boolean;
+  mx_found: boolean;
   dmarc_valid: boolean;
-  smtp_valid: boolean;
-  smtp_details?: {
-    mx: string;
-    code: number;
-    message: string;
-    tls: boolean;
-    latency_ms: number;
-    status: "valid" | "invalid" | "temp_error" | "unknown" | "catch_all";
-  };
-  is_disposable: boolean;
-  is_role_based: boolean;
-  is_free_provider: boolean;
-  is_catch_all: boolean;
-  is_spam_trap: boolean;
-  is_abuse: boolean;
-  is_toxic: boolean;
+  disposable: boolean;
+  role_account: boolean;
+  catch_all: boolean;
+  smtp_score: number;
+  status: "valid" | "invalid" | "risky" | "unknown";
   error_message?: string;
+  // Computed fields
+  can_send?: "yes" | "no";
 }
 
 const Index = () => {
@@ -81,11 +72,17 @@ const Index = () => {
       if (error) throw error;
 
       if (data?.results) {
-        setResults(data.results);
-        setTotalEmails(data.results.length);
-        setProcessedEmails(data.results.length);
+        // Add can_send field based on status
+        const processedResults = data.results.map((result: VerificationResult) => ({
+          ...result,
+          can_send: (result.status === "valid" || result.status === "risky") ? "yes" : "no"
+        }));
+        
+        setResults(processedResults);
+        setTotalEmails(processedResults.length);
+        setProcessedEmails(processedResults.length);
         setProgress(100);
-        toast.success(`Verified ${data.results.length} emails successfully!`);
+        toast.success(`Verified ${processedResults.length} emails successfully!`);
       }
     } catch (error: any) {
       console.error('Verification error:', error);
