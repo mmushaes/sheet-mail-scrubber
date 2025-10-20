@@ -32,6 +32,8 @@ const Index = () => {
   const [currentStage, setCurrentStage] = useState<"syntax" | "dns" | "dmarc" | "smtp">("syntax");
   const [totalEmails, setTotalEmails] = useState(0);
   const [processedEmails, setProcessedEmails] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState<string>("");
+  const [startTime, setStartTime] = useState<number>(0);
 
   const handleStartVerification = async (sheetsUrl: string) => {
     setIsProcessing(true);
@@ -40,6 +42,12 @@ const Index = () => {
     setTotalEmails(0);
     setProcessedEmails(0);
     setCurrentStage("syntax");
+    setStartTime(Date.now());
+    
+    // Estimate: ~30-50ms per email, use 40ms average
+    // Max 1000 emails = ~40 seconds
+    const estimatedSeconds = Math.min(1000, 40); // Cap at reasonable time
+    setEstimatedTime(`${Math.ceil(estimatedSeconds / 60)} min`);
 
     try {
       // Simulate stage progression
@@ -188,6 +196,7 @@ const Index = () => {
                   currentStage={currentStage}
                   totalEmails={totalEmails}
                   processedEmails={processedEmails}
+                  estimatedTime={estimatedTime}
                 />
               )}
             </TabsContent>

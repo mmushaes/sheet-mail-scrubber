@@ -21,10 +21,10 @@ interface EmailVerificationResult {
 
 // Configuration - optimized for edge function CPU limits
 const CONFIG = {
-  DNS_TIMEOUT_MS: 4000,
-  BATCH_SIZE: 50, // Smaller batches to avoid CPU timeout
-  MAX_EMAILS: 5000,
-  MAX_CONCURRENT: 25, // Limit concurrent DNS requests
+  DNS_TIMEOUT_MS: 3000, // Reduced timeout
+  BATCH_SIZE: 25, // Smaller batches to avoid CPU timeout
+  MAX_EMAILS: 1000, // Reduced to prevent CPU timeout
+  MAX_CONCURRENT: 10, // Reduced concurrent requests
 };
 
 // Known mail exchanger patterns

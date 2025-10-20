@@ -8,6 +8,7 @@ interface VerificationProgressProps {
   currentStage: "syntax" | "dns" | "dmarc" | "smtp";
   totalEmails: number;
   processedEmails: number;
+  estimatedTime?: string;
 }
 
 export const VerificationProgress = ({
@@ -15,6 +16,7 @@ export const VerificationProgress = ({
   currentStage,
   totalEmails,
   processedEmails,
+  estimatedTime,
 }: VerificationProgressProps) => {
   const stages = [
     {
@@ -54,6 +56,7 @@ export const VerificationProgress = ({
         </CardTitle>
         <CardDescription>
           Processing {processedEmails} of {totalEmails} emails
+          {estimatedTime && ` • Estimated time: ${estimatedTime}`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
