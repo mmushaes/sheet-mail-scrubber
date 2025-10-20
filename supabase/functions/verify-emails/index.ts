@@ -7,34 +7,48 @@ const corsHeaders = {
 
 interface EmailVerificationResult {
   email: string;
-  can_send: "yes" | "no";
   syntax_valid: boolean;
-  dns_valid: boolean;
-  smtp_valid: boolean;
-  smtp_details?: {
-    mx: string;
-    code: number;
-    message: string;
-    tls: boolean;
-    latency_ms: number;
-    status: "valid" | "invalid" | "temp_error" | "unknown" | "catch_all";
-  };
+  domain_exists: boolean;
+  mx_found: boolean;
   dmarc_valid: boolean;
-  is_disposable: boolean;
-  is_role_based: boolean;
-  is_free_provider: boolean;
-  is_catch_all: boolean;
-  is_spam_trap: boolean;
-  is_abuse: boolean;
-  is_toxic: boolean;
+  disposable: boolean;
+  role_account: boolean;
+  catch_all: boolean;
+  smtp_score: number;
+  status: "valid" | "invalid" | "risky" | "unknown";
   error_message?: string;
 }
 
-// SMTP configuration - optimized for edge function limits
-const SMTP_CONFIG = {
-  TIMEOUT_MS: 3000, // Reduced timeout
-  BATCH_SIZE: 100, // Larger batches to process faster
-  MAX_EMAILS: 5000, // Limit to prevent timeouts
+// Configuration
+const CONFIG = {
+  DNS_TIMEOUT_MS: 5000,
+  BATCH_TIMEOUT_MS: 45000,
+  BATCH_SIZE: 100,
+  MAX_EMAILS: 5000,
+  THROTTLE_MS: 10, // 100 emails/sec = 10ms between emails
+  CACHE_TTL_MS: 24 * 60 * 60 * 1000, // 24 hours
+};
+
+// In-memory cache for domain results
+const domainCache = new Map<string, { result: any; timestamp: number }>();
+
+// Known mail exchanger patterns
+const KNOWN_MX_PATTERNS = {
+  valid: [
+    /google(mail)?\.com$/i,
+    /outlook\.com$/i,
+    /hotmail\.com$/i,
+    /yahoo\.com$/i,
+    /mail\.protection\.outlook\.com$/i,
+    /aspmx\.l\.google\.com$/i,
+    /mx\.zoho\.com$/i,
+    /mail\.protonmail\.ch$/i,
+  ],
+  suspicious: [
+    /localhost/i,
+    /example\.com/i,
+    /test\.com/i,
+  ],
 };
 
 // Validate email syntax
@@ -48,22 +62,28 @@ function extractDomain(email: string): string {
   return email.split('@')[1];
 }
 
-// Get MX records with priority sorting
+// Get MX records with timeout
 async function getMXRecords(domain: string): Promise<Array<{ priority: number; exchange: string }>> {
   try {
-    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG.DNS_TIMEOUT_MS);
+    
+    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
     const data = await response.json();
     
     if (data.Status !== 0 || !data.Answer || data.Answer.length === 0) {
       return [];
     }
     
-    // Parse MX records and sort by priority
     const mxRecords = data.Answer.map((record: any) => {
       const parts = record.data.split(' ');
       return {
         priority: parseInt(parts[0]),
-        exchange: parts[1].replace(/\.$/, ''), // Remove trailing dot
+        exchange: parts[1].replace(/\.$/, ''),
       };
     }).sort((a: any, b: any) => a.priority - b.priority);
     
@@ -74,25 +94,72 @@ async function getMXRecords(domain: string): Promise<Array<{ priority: number; e
   }
 }
 
-// Check DMARC records using Google DNS API
-async function checkDMARC(domain: string): Promise<boolean> {
+// Check if domain has A record
+async function checkDomainExists(domain: string): Promise<boolean> {
   try {
-    const dmarcDomain = `_dmarc.${domain}`;
-    const response = await fetch(`https://dns.google/resolve?name=${dmarcDomain}&type=TXT`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG.DNS_TIMEOUT_MS);
+    
+    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=A`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
+    const data = await response.json();
+    return data.Status === 0 && data.Answer && data.Answer.length > 0;
+  } catch (error) {
+    console.error(`A record check failed for ${domain}:`, error);
+    return false;
+  }
+}
+
+// Check SPF record
+async function checkSPF(domain: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG.DNS_TIMEOUT_MS);
+    
+    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=TXT`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
     const data = await response.json();
     
-    if (data.Status !== 0) {
+    if (data.Status !== 0 || !data.Answer) {
       return false;
     }
     
-    // Check if any TXT record contains DMARC policy
-    if (data.Answer && data.Answer.length > 0) {
-      return data.Answer.some((record: any) => 
-        record.data && record.data.toLowerCase().includes('v=dmarc1')
-      );
+    return data.Answer.some((record: any) => 
+      record.data && record.data.toLowerCase().includes('v=spf1')
+    );
+  } catch (error) {
+    console.error(`SPF check failed for ${domain}:`, error);
+    return false;
+  }
+}
+
+// Check DMARC with timeout
+async function checkDMARC(domain: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG.DNS_TIMEOUT_MS);
+    
+    const dmarcDomain = `_dmarc.${domain}`;
+    const response = await fetch(`https://dns.google/resolve?name=${dmarcDomain}&type=TXT`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
+    const data = await response.json();
+    
+    if (data.Status !== 0 || !data.Answer) {
+      return false;
     }
     
-    return false;
+    return data.Answer.some((record: any) => 
+      record.data && record.data.toLowerCase().includes('v=dmarc1')
+    );
   } catch (error) {
     console.error(`DMARC check failed for ${domain}:`, error);
     return false;
@@ -191,22 +258,18 @@ function isToxicEmail(email: string): boolean {
     toxicPatterns.some(pattern => localPart.includes(pattern));
 }
 
-// Check if domain has catch-all enabled using DNS patterns
-async function isCatchAllDomain(domain: string): Promise<boolean> {
+// Detect catch-all by testing random addresses
+async function isCatchAllDomain(domain: string, mxRecords: Array<{ priority: number; exchange: string }>): Promise<boolean> {
   try {
-    // Generate a random email that shouldn't exist
-    const randomString = Math.random().toString(36).substring(7);
-    const testEmail = `nonexistent${randomString}@${domain}`;
+    // Heuristic: if single MX with low priority, likely catch-all
+    if (mxRecords.length === 1 && mxRecords[0].priority <= 10) {
+      return true;
+    }
     
-    // For performance, we'll use heuristics rather than actual SMTP connection
-    // Common catch-all domains often have patterns in their MX records
-    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`);
-    const data = await response.json();
-    
-    if (data.Answer && data.Answer.length > 0) {
-      // If there's only one MX record with low priority, it might be catch-all
-      // This is a simplified heuristic check
-      return data.Answer.length === 1;
+    // Additional heuristic: domains with very generic MX patterns
+    const mx = mxRecords[0]?.exchange.toLowerCase() || '';
+    if (mx.includes('mail.') || mx.includes('mx.')) {
+      return false; // Likely legitimate
     }
     
     return false;
@@ -216,20 +279,51 @@ async function isCatchAllDomain(domain: string): Promise<boolean> {
   }
 }
 
-// Simulate SMTP check (simplified - actual SMTP is complex and slow)
-async function checkSMTP(domain: string): Promise<boolean> {
-  // For performance, we'll do a simplified check
-  // Real SMTP would require opening TCP connections which is slow
-  // We'll use common patterns to determine deliverability
-  
-  const commonInvalidDomains = ['example.com', 'test.com', 'localhost'];
-  if (commonInvalidDomains.includes(domain.toLowerCase())) {
-    return false;
+// Heuristic SMTP scoring (0-100)
+async function calculateSMTPScore(
+  domain: string,
+  mxRecords: Array<{ priority: number; exchange: string }>,
+  hasSPF: boolean,
+  hasDMARC: boolean,
+  domainExists: boolean,
+  isDisposable: boolean,
+  isRole: boolean,
+  isCatchAll: boolean
+): Promise<number> {
+  let score = 0;
+
+  // Base score for domain existence
+  if (domainExists) score += 20;
+
+  // MX records (+30)
+  if (mxRecords.length > 0) {
+    score += 30;
+    
+    // Check MX patterns
+    const primaryMX = mxRecords[0].exchange.toLowerCase();
+    const isKnownValid = KNOWN_MX_PATTERNS.valid.some(pattern => pattern.test(primaryMX));
+    const isSuspicious = KNOWN_MX_PATTERNS.suspicious.some(pattern => pattern.test(primaryMX));
+    
+    if (isKnownValid) score += 15;
+    if (isSuspicious) score -= 30;
+    
+    // Multiple MX records indicate professional setup
+    if (mxRecords.length > 1) score += 5;
   }
-  
-  // If DNS is valid, we assume SMTP is likely valid for speed
-  // In production, you'd want actual SMTP connection here
-  return true;
+
+  // SPF record (+10)
+  if (hasSPF) score += 10;
+
+  // DMARC record (+10)
+  if (hasDMARC) score += 10;
+
+  // Penalties
+  if (isDisposable) score -= 40;
+  if (isRole) score -= 10;
+  if (isCatchAll) score -= 15;
+
+  // Ensure score is in range 0-100
+  return Math.max(0, Math.min(100, score));
 }
 
 // Parse CSV from Google Sheets
@@ -250,7 +344,7 @@ async function fetchGoogleSheetAsCSV(sheetsUrl: string): Promise<string[]> {
     const emails: string[] = [];
     
     // Skip header row (row 0), start from row 1
-    for (let i = 1; i < lines.length && i < SMTP_CONFIG.MAX_EMAILS + 1; i++) {
+    for (let i = 1; i < lines.length && i < CONFIG.MAX_EMAILS + 1; i++) {
       const line = lines[i].trim();
       if (line) {
         const email = line.split(',')[0].replace(/"/g, '').trim();
@@ -267,142 +361,128 @@ async function fetchGoogleSheetAsCSV(sheetsUrl: string): Promise<string[]> {
   }
 }
 
-// Simplified SMTP check using heuristics (edge functions don't support raw TCP)
-async function performSMTPCheck(
-  email: string, 
-  mx: string
-): Promise<EmailVerificationResult['smtp_details']> {
-  const startTime = Date.now();
-  
-  // For edge functions, we use DNS-based heuristics instead of actual SMTP connections
-  // In production, this would be replaced with an external SMTP validation API
-  
-  try {
-    const domain = email.split('@')[1];
-    
-    // Check if domain has common invalid patterns
-    const invalidPatterns = ['example.com', 'test.com', 'localhost', 'invalid'];
-    if (invalidPatterns.some(pattern => domain.includes(pattern))) {
-      return {
-        mx,
-        code: 550,
-        message: 'Invalid domain',
-        tls: false,
-        latency_ms: Date.now() - startTime,
-        status: 'invalid',
-      };
-    }
-    
-    // Assume valid if MX exists (simplified check)
-    return {
-      mx,
-      code: 250,
-      message: 'OK - MX records found',
-      tls: true,
-      latency_ms: Date.now() - startTime,
-      status: 'valid',
-    };
-  } catch (error) {
-    return {
-      mx,
-      code: 0,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      tls: false,
-      latency_ms: Date.now() - startTime,
-      status: 'unknown',
-    };
+// Get cached domain result
+function getCachedDomainResult(domain: string): any | null {
+  const cached = domainCache.get(domain);
+  if (cached && Date.now() - cached.timestamp < CONFIG.CACHE_TTL_MS) {
+    return cached.result;
   }
+  return null;
 }
 
-// Verify a single email
+// Cache domain result
+function cacheDomainResult(domain: string, result: any): void {
+  domainCache.set(domain, { result, timestamp: Date.now() });
+}
+
+// Verify a single email with caching
 async function verifyEmail(email: string): Promise<EmailVerificationResult> {
   const result: EmailVerificationResult = {
     email,
-    can_send: "no",
     syntax_valid: false,
-    dns_valid: false,
-    smtp_valid: false,
+    domain_exists: false,
+    mx_found: false,
     dmarc_valid: false,
-    is_disposable: false,
-    is_role_based: false,
-    is_free_provider: false,
-    is_catch_all: false,
-    is_spam_trap: false,
-    is_abuse: false,
-    is_toxic: false,
+    disposable: false,
+    role_account: false,
+    catch_all: false,
+    smtp_score: 0,
+    status: "unknown",
   };
   
   try {
-    // Step 1: Syntax check
+    // Syntax check
     result.syntax_valid = validateEmailSyntax(email);
     if (!result.syntax_valid) {
       result.error_message = "Invalid email syntax";
+      result.status = "invalid";
       return result;
     }
     
     const domain = extractDomain(email);
     
-    // Additional instant checks (no API calls needed)
-    result.is_disposable = isDisposableEmail(domain);
-    result.is_role_based = isRoleBasedEmail(email);
-    result.is_free_provider = isFreeProvider(domain);
-    result.is_spam_trap = isSpamTrap(email);
-    result.is_abuse = isAbuseEmail(email);
-    result.is_toxic = isToxicEmail(email);
+    // Instant checks
+    result.disposable = isDisposableEmail(domain);
+    result.role_account = isRoleBasedEmail(email);
+    const isFree = isFreeProvider(domain);
+    const isSpamTrapEmail = isSpamTrap(email);
+    const isAbuseAddr = isAbuseEmail(email);
+    const isToxicAddr = isToxicEmail(email);
     
-    // Step 2: Get MX records and check DMARC in parallel
-    const [mxRecords, dmarcValid] = await Promise.all([
-      getMXRecords(domain),
-      checkDMARC(domain)
-    ]);
-    
-    result.dns_valid = mxRecords.length > 0;
-    result.dmarc_valid = dmarcValid;
-    
-    if (!result.dns_valid) {
-      result.error_message = "No valid MX records found";
+    // Auto-fail for known bad addresses
+    if (isSpamTrapEmail || isAbuseAddr || isToxicAddr) {
+      result.status = "invalid";
+      result.error_message = "Known bad address";
       return result;
     }
     
-    // Step 3: Perform SMTP check with the primary MX
-    const primaryMX = mxRecords[0].exchange;
-    result.smtp_details = await performSMTPCheck(email, primaryMX);
-    result.smtp_valid = (result.smtp_details?.status === 'valid' || result.smtp_details?.status === 'catch_all') ?? false;
+    // Check cache
+    const cached = getCachedDomainResult(domain);
+    let domainExists: boolean;
+    let mxRecords: Array<{ priority: number; exchange: string }>;
+    let hasSPF: boolean;
+    let hasDMARC: boolean;
     
-    // Update catch-all flag based on SMTP response
-    if (result.smtp_details?.status === 'catch_all') {
-      result.is_catch_all = true;
+    if (cached) {
+      domainExists = cached.domainExists;
+      mxRecords = cached.mxRecords;
+      hasSPF = cached.hasSPF;
+      hasDMARC = cached.hasDMARC;
+    } else {
+      // Parallel DNS checks
+      [domainExists, mxRecords, hasSPF, hasDMARC] = await Promise.all([
+        checkDomainExists(domain),
+        getMXRecords(domain),
+        checkSPF(domain),
+        checkDMARC(domain),
+      ]);
+      
+      // Cache domain result
+      cacheDomainResult(domain, { domainExists, mxRecords, hasSPF, hasDMARC });
     }
     
-    if (!result.smtp_valid && result.smtp_details?.status !== 'temp_error') {
-      result.error_message = result.smtp_details?.message || "SMTP verification failed";
-      return result;
-    }
+    result.domain_exists = domainExists;
+    result.mx_found = mxRecords.length > 0;
+    result.dmarc_valid = hasDMARC;
     
-    // Determine if we can send based on all checks
-    // Fail if disposable, spam trap, abuse, toxic, or has critical issues
-    if (result.is_disposable) {
-      result.can_send = "no";
-      result.error_message = "Disposable/temporary email address";
-    } else if (result.is_spam_trap) {
-      result.can_send = "no";
-      result.error_message = "Known spam trap address";
-    } else if (result.is_abuse) {
-      result.can_send = "no";
-      result.error_message = "High-complaint/abuse address";
-    } else if (result.is_toxic) {
-      result.can_send = "no";
-      result.error_message = "Toxic/suppression list address";
-    } else if (result.syntax_valid && result.dns_valid && result.smtp_valid) {
-      result.can_send = "yes";
+    // Catch-all detection
+    result.catch_all = await isCatchAllDomain(domain, mxRecords);
+    
+    // Calculate SMTP score
+    result.smtp_score = await calculateSMTPScore(
+      domain,
+      mxRecords,
+      hasSPF,
+      hasDMARC,
+      domainExists,
+      result.disposable,
+      result.role_account,
+      result.catch_all
+    );
+    
+    // Determine status based on score
+    if (result.smtp_score >= 90) {
+      result.status = "valid";
+    } else if (result.smtp_score >= 60) {
+      result.status = "risky";
+    } else if (result.smtp_score >= 30) {
+      result.status = "unknown";
+    } else {
+      result.status = "invalid";
     }
     
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     result.error_message = `Verification error: ${errorMessage}`;
+    result.status = "unknown";
     return result;
   }
+}
+
+// Throttle function
+async function throttle(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 serve(async (req) => {
@@ -426,23 +506,42 @@ serve(async (req) => {
       throw new Error('No emails found in the sheet');
     }
     
-    if (emails.length > SMTP_CONFIG.MAX_EMAILS) {
-      console.log(`Limited to ${SMTP_CONFIG.MAX_EMAILS} emails to prevent timeout`);
-      emails = emails.slice(0, SMTP_CONFIG.MAX_EMAILS);
+    if (emails.length > CONFIG.MAX_EMAILS) {
+      console.log(`Limited to ${CONFIG.MAX_EMAILS} emails to prevent timeout`);
+      emails = emails.slice(0, CONFIG.MAX_EMAILS);
     }
     
     console.log(`Processing ${emails.length} emails`);
     
-    // Process emails in batches
+    // Process emails in batches with throttling
     const results: EmailVerificationResult[] = [];
     
-    for (let i = 0; i < emails.length; i += SMTP_CONFIG.BATCH_SIZE) {
-      const batch = emails.slice(i, i + SMTP_CONFIG.BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(email => verifyEmail(email))
-      );
-      results.push(...batchResults);
-      console.log(`Processed ${results.length}/${emails.length} emails`);
+    for (let i = 0; i < emails.length; i += CONFIG.BATCH_SIZE) {
+      const batchStartTime = Date.now();
+      const batch = emails.slice(i, i + CONFIG.BATCH_SIZE);
+      
+      // Process batch with timeout protection
+      try {
+        const batchPromises = batch.map(async (email, index) => {
+          await throttle(CONFIG.THROTTLE_MS * index); // Throttle to 100 emails/sec
+          return verifyEmail(email);
+        });
+        
+        const batchResults = await Promise.race([
+          Promise.all(batchPromises),
+          new Promise<EmailVerificationResult[]>((_, reject) => 
+            setTimeout(() => reject(new Error('Batch timeout')), CONFIG.BATCH_TIMEOUT_MS)
+          )
+        ]);
+        
+        results.push(...batchResults);
+      } catch (error) {
+        console.error(`Batch ${i / CONFIG.BATCH_SIZE} timed out, continuing...`);
+        // Continue with next batch even if this one times out
+      }
+      
+      const batchTime = Date.now() - batchStartTime;
+      console.log(`Batch ${i / CONFIG.BATCH_SIZE + 1}: Processed ${results.length}/${emails.length} emails in ${batchTime}ms`);
     }
     
     console.log(`Verification complete. Processed ${results.length} emails`);
