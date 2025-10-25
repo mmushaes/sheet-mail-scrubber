@@ -54,7 +54,7 @@ export const VerificationProgress = ({
           <Loader2 className="w-5 h-5 animate-spin text-primary" />
           Verification in Progress
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="font-semibold">
           Processing {processedEmails} of {totalEmails} emails
           {estimatedTime && ` • Estimated time: ${estimatedTime}`}
         </CardDescription>

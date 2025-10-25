@@ -49,7 +49,7 @@ export const VerificationForm = ({ onSubmit, isProcessing }: VerificationFormPro
           Upload Email List
         </CardTitle>
         <CardDescription>
-          Provide a Google Sheets URL containing email addresses (up to 5,000 emails)
+          Provide a Google Sheets URL containing email addresses (processes in 1,000 email chunks)
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -75,7 +75,7 @@ export const VerificationForm = ({ onSubmit, isProcessing }: VerificationFormPro
                 <li>Emails should be in Column A</li>
                 <li>First row should contain headers</li>
                 <li>Sheet must be publicly accessible or shared with the tool</li>
-                <li>Maximum 5,000 emails per batch</li>
+                <li>Processes up to 10,000 emails in automated 1,000-email chunks</li>
               </ul>
             </AlertDescription>
           </Alert>
