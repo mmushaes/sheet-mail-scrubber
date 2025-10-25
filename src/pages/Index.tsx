@@ -35,6 +35,35 @@ const Index = () => {
   const [estimatedTime, setEstimatedTime] = useState<string>("");
   const [startTime, setStartTime] = useState<number>(0);
 
+  const fetchEmailsFromSheet = async (sheetsUrl: string): Promise<string[]> => {
+    // Convert Google Sheets URL to CSV export URL
+    const sheetId = sheetsUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
+    if (!sheetId) {
+      throw new Error('Invalid Google Sheets URL');
+    }
+    
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+    const response = await fetch(csvUrl);
+    const csvText = await response.text();
+    
+    // Parse CSV and extract emails (assuming first column)
+    const lines = csvText.split('\n');
+    const emails: string[] = [];
+    
+    // Skip header row (row 0), start from row 1
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line) {
+        const email = line.split(',')[0].replace(/"/g, '').trim();
+        if (email && email.includes('@')) {
+          emails.push(email);
+        }
+      }
+    }
+    
+    return emails;
+  };
+
   const handleStartVerification = async (sheetsUrl: string) => {
     setIsProcessing(true);
     setProgress(0);
@@ -43,55 +72,71 @@ const Index = () => {
     setProcessedEmails(0);
     setCurrentStage("syntax");
     setStartTime(Date.now());
-    
-    // Estimate: ~30-50ms per email, use 40ms average
-    // Max 1000 emails = ~40 seconds
-    const estimatedSeconds = Math.min(1000, 40); // Cap at reasonable time
-    setEstimatedTime(`${Math.ceil(estimatedSeconds / 60)} min`);
 
     try {
-      // Simulate stage progression
-      const stages: Array<"syntax" | "dns" | "dmarc" | "smtp"> = ["syntax", "dns", "dmarc", "smtp"];
-      let stageIndex = 0;
+      // Step 1: Fetch ALL emails from sheet directly
+      console.log('Fetching all emails from sheet...');
+      const allEmails = await fetchEmailsFromSheet(sheetsUrl);
       
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          const newProgress = prev + 4;
-          if (newProgress >= 25 && stageIndex === 0) {
-            setCurrentStage("dns");
-            stageIndex = 1;
-          } else if (newProgress >= 50 && stageIndex === 1) {
-            setCurrentStage("dmarc");
-            stageIndex = 2;
-          } else if (newProgress >= 75 && stageIndex === 2) {
-            setCurrentStage("smtp");
-            stageIndex = 3;
-          }
-          return Math.min(newProgress, 95);
-        });
-      }, 200);
-
-      const { data, error } = await supabase.functions.invoke('verify-emails', {
-        body: { sheetsUrl }
-      });
-
-      clearInterval(progressInterval);
-
-      if (error) throw error;
-
-      if (data?.results) {
-        // Add can_send field based on status
-        const processedResults = data.results.map((result: VerificationResult) => ({
-          ...result,
-          can_send: (result.status === "valid" || result.status === "risky") ? "yes" : "no"
-        }));
-        
-        setResults(processedResults);
-        setTotalEmails(processedResults.length);
-        setProcessedEmails(processedResults.length);
-        setProgress(100);
-        toast.success(`Verified ${processedResults.length} emails successfully!`);
+      if (allEmails.length === 0) {
+        throw new Error('No emails found in the sheet');
       }
+
+      const CHUNK_SIZE = 1000;
+      const totalChunks = Math.ceil(allEmails.length / CHUNK_SIZE);
+      
+      setTotalEmails(allEmails.length);
+      setEstimatedTime(`${Math.ceil((allEmails.length / 1000) * 0.9)} min`);
+      
+      console.log(`Processing ${allEmails.length} emails in ${totalChunks} chunks`);
+      toast.info(`Processing ${allEmails.length} emails in ${totalChunks} chunks...`);
+      
+      let allResults: VerificationResult[] = [];
+      
+      // Step 2: Process each chunk of 1000 emails
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, allEmails.length);
+        const emailChunk = allEmails.slice(start, end);
+        
+        console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks} (${emailChunk.length} emails)`);
+        
+        // Update stage based on progress
+        const overallProgress = (start / allEmails.length) * 100;
+        if (overallProgress < 25) setCurrentStage("syntax");
+        else if (overallProgress < 50) setCurrentStage("dns");
+        else if (overallProgress < 75) setCurrentStage("dmarc");
+        else setCurrentStage("smtp");
+        
+        // Process this chunk
+        const { data: chunkData, error: chunkError } = await supabase.functions.invoke('verify-emails', {
+          body: { emails: emailChunk }
+        });
+        
+        if (chunkError) {
+          console.error(`Chunk ${chunkIndex + 1} failed:`, chunkError);
+          toast.error(`Chunk ${chunkIndex + 1} failed. Continuing with remaining chunks...`);
+          continue;
+        }
+        
+        if (chunkData?.results) {
+          const processedResults = chunkData.results.map((result: VerificationResult) => ({
+            ...result,
+            can_send: (result.status === "valid" || result.status === "risky") ? "yes" : "no"
+          }));
+          
+          allResults = [...allResults, ...processedResults];
+          setResults(allResults);
+          setProcessedEmails(allResults.length);
+          setProgress((allResults.length / allEmails.length) * 100);
+          
+          toast.success(`Chunk ${chunkIndex + 1}/${totalChunks} complete (${allResults.length}/${allEmails.length} emails)`);
+        }
+      }
+      
+      setProgress(100);
+      toast.success(`✅ Verified ${allResults.length} emails across ${totalChunks} chunks!`);
+      
     } catch (error: any) {
       console.error('Verification error:', error);
       toast.error(error.message || 'Failed to verify emails. Please check the Google Sheets URL.');

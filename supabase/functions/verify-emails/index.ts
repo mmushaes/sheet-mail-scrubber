@@ -466,24 +466,31 @@ serve(async (req) => {
   }
   
   try {
-    const { sheetsUrl } = await req.json();
+    const { sheetsUrl, emails: providedEmails } = await req.json();
     
-    if (!sheetsUrl) {
-      throw new Error('Google Sheets URL is required');
-    }
+    let emails: string[];
     
-    console.log(`Starting verification for: ${sheetsUrl}`);
-    
-    // Fetch emails from Google Sheet
-    let emails = await fetchGoogleSheetAsCSV(sheetsUrl);
-    
-    if (emails.length === 0) {
-      throw new Error('No emails found in the sheet');
-    }
-    
-    if (emails.length > CONFIG.MAX_EMAILS) {
-      console.log(`Limited to ${CONFIG.MAX_EMAILS} emails to prevent timeout`);
-      emails = emails.slice(0, CONFIG.MAX_EMAILS);
+    // Support both sheetsUrl (fetch emails) and direct email array
+    if (providedEmails && Array.isArray(providedEmails)) {
+      emails = providedEmails;
+      console.log(`Processing ${emails.length} emails from provided array`);
+    } else if (sheetsUrl) {
+      console.log(`Starting verification for: ${sheetsUrl}`);
+      
+      // Fetch emails from Google Sheet
+      emails = await fetchGoogleSheetAsCSV(sheetsUrl);
+      
+      if (emails.length === 0) {
+        throw new Error('No emails found in the sheet');
+      }
+      
+      // Only limit when fetching from sheet (frontend handles chunking for direct arrays)
+      if (emails.length > CONFIG.MAX_EMAILS) {
+        console.log(`Limited to ${CONFIG.MAX_EMAILS} emails to prevent timeout`);
+        emails = emails.slice(0, CONFIG.MAX_EMAILS);
+      }
+    } else {
+      throw new Error('Either sheetsUrl or emails array is required');
     }
     
     console.log(`Processing ${emails.length} emails in batches of ${CONFIG.BATCH_SIZE}`);
