@@ -1,18 +1,13 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { VerificationForm } from "@/components/verification/VerificationForm";
 import { VerificationProgress } from "@/components/verification/VerificationProgress";
 import { ResultsTable } from "@/components/verification/ResultsTable";
 import { SummaryStats } from "@/components/verification/SummaryStats";
-import { Shield, CheckCircle, XCircle, AlertCircle, LogOut } from "lucide-react";
+import { Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import type { Session, User } from "@supabase/supabase-js";
 
 export interface VerificationResult {
   email: string;
@@ -30,13 +25,7 @@ export interface VerificationResult {
   can_send?: "yes" | "no";
 }
 
-interface IndexProps {
-  user: User | null;
-  session: Session | null;
-}
-
-const Index = ({ user, session }: IndexProps) => {
-  const navigate = useNavigate();
+const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<VerificationResult[]>([]);
@@ -45,37 +34,6 @@ const Index = ({ user, session }: IndexProps) => {
   const [processedEmails, setProcessedEmails] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState<string>("");
   const [startTime, setStartTime] = useState<number>(0);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-
-  useEffect(() => {
-    // Check authentication
-    if (!session) {
-      navigate("/auth");
-    } else {
-      setIsCheckingAuth(false);
-    }
-  }, [session, navigate]);
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      toast.success("Logged out successfully");
-      navigate("/auth");
-    } catch (error: any) {
-      toast.error("Failed to log out");
-    }
-  };
-
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background flex items-center justify-center">
-        <div className="text-center">
-          <Shield className="w-12 h-12 text-primary animate-pulse mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
 
   const fetchEmailsFromSheet = async (sheetsUrl: string): Promise<string[]> => {
     // Convert Google Sheets URL to CSV export URL
@@ -192,44 +150,16 @@ const Index = ({ user, session }: IndexProps) => {
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Shield className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">Email Verification Tool</h1>
-                <p className="text-sm text-muted-foreground">
-                  Verify email deliverability without sending
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Shield className="w-6 h-6 text-primary" />
             </div>
-            
-            {/* User Profile */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={user?.user_metadata?.avatar_url} alt={user?.email || ""} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      {user?.email?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <div className="flex items-center justify-start gap-2 p-2">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium">{user?.user_metadata?.full_name || "User"}</p>
-                    <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  </div>
-                </div>
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Email Verification Tool</h1>
+              <p className="text-sm text-muted-foreground">
+                Verify email deliverability without sending
+              </p>
+            </div>
           </div>
         </div>
       </header>
