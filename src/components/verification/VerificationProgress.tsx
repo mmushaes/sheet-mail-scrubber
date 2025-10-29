@@ -48,13 +48,13 @@ export const VerificationProgress = ({
   const currentStageIndex = stages.findIndex((s) => s.key === currentStage);
 
   return (
-    <Card className="border-primary/20 shadow-lg">
+    <Card className="border-emerald-200/60 shadow-xl shadow-emerald-900/5 bg-white/80 backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        <CardTitle className="flex items-center gap-2 text-emerald-900">
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
           Verification in Progress
         </CardTitle>
-        <CardDescription className="font-semibold">
+        <CardDescription className="font-semibold text-slate-600">
           Processing {processedEmails} of {totalEmails} emails
           {estimatedTime && ` • Estimated time: ${estimatedTime}`}
         </CardDescription>
@@ -62,10 +62,10 @@ export const VerificationProgress = ({
       <CardContent className="space-y-6">
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Overall Progress</span>
-            <span className="font-semibold">{Math.round(progress)}%</span>
+            <span className="text-slate-600">Overall Progress</span>
+            <span className="font-semibold text-emerald-900">{Math.round(progress)}%</span>
           </div>
-          <Progress value={progress} className="h-2" />
+          <Progress value={progress} className="h-3 bg-emerald-100" />
         </div>
 
         <div className="grid gap-3">
@@ -78,29 +78,29 @@ export const VerificationProgress = ({
             return (
               <div
                 key={stage.key}
-                className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all duration-300 ${
                   isCurrent
-                    ? "border-primary bg-primary/5"
+                    ? "border-emerald-300 bg-gradient-to-br from-emerald-50 to-emerald-100/50 shadow-md"
                     : isComplete
-                    ? "border-success/20 bg-success/5"
-                    : "border-border bg-muted/20"
+                    ? "border-emerald-200 bg-emerald-50/30"
+                    : "border-slate-200 bg-slate-50/30"
                 }`}
               >
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg ${
                     isCurrent
-                      ? "bg-primary/10"
+                      ? "bg-gradient-to-br from-emerald-100 to-emerald-50"
                       : isComplete
-                      ? "bg-success/10"
-                      : "bg-muted"
+                      ? "bg-gradient-to-br from-emerald-100 to-emerald-50"
+                      : "bg-slate-100"
                   }`}
                 >
                   {isCurrent ? (
-                    <Loader2 className={`w-5 h-5 animate-spin ${stage.color}`} />
+                    <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
                   ) : (
                     <Icon
                       className={`w-5 h-5 ${
-                        isComplete ? "text-success" : "text-muted-foreground"
+                        isComplete ? "text-emerald-600" : "text-slate-400"
                       }`}
                     />
                   )}
@@ -114,10 +114,10 @@ export const VerificationProgress = ({
                   }
                   className={
                     isComplete
-                      ? "bg-success text-success-foreground"
+                      ? "bg-emerald-600 text-white shadow-md"
                       : isCurrent
-                      ? "bg-primary/10 text-primary"
-                      : ""
+                      ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                      : "border-slate-300 text-slate-600"
                   }
                 >
                   {isComplete ? "Complete" : isCurrent ? "Processing" : "Pending"}

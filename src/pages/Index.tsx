@@ -146,17 +146,18 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30">
+      <header className="border-b border-emerald-100/50 bg-white/80 backdrop-blur-xl sticky top-0 z-10 shadow-sm">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Shield className="w-6 h-6 text-primary" />
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-900 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-900/20">
+              <Shield className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Email Verification Tool</h1>
-              <p className="text-sm text-muted-foreground">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-900 to-emerald-700 bg-clip-text text-transparent">
+                Email Verification Tool
+              </h1>
+              <p className="text-sm text-slate-600">
                 Verify email deliverability without sending
               </p>
             </div>
@@ -167,51 +168,50 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto space-y-6">
-          {/* How it Works Section */}
-          <Card className="border-primary/20 shadow-lg">
+          <Card className="border-emerald-200/60 shadow-xl shadow-emerald-900/5 bg-white/80 backdrop-blur-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-emerald-900">
+                <Shield className="w-5 h-5 text-emerald-600" />
                 How It Works
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-slate-600">
                 Our 4-stage verification process ensures accurate results
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-4 gap-4">
-                <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
-                  <CheckCircle className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
+                <div className="flex gap-3 p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200/50 hover:shadow-md transition-all duration-300">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">1. Syntax</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <h3 className="font-semibold text-sm mb-1 text-emerald-900">1. Syntax</h3>
+                    <p className="text-xs text-slate-600">
                       Validates email format
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
-                  <AlertCircle className="w-5 h-5 text-info flex-shrink-0 mt-0.5" />
+                <div className="flex gap-3 p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200/50 hover:shadow-md transition-all duration-300">
+                  <AlertCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">2. DNS/MX</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <h3 className="font-semibold text-sm mb-1 text-emerald-900">2. DNS/MX</h3>
+                    <p className="text-xs text-slate-600">
                       Verifies mail exchange records
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
-                  <Shield className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                <div className="flex gap-3 p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200/50 hover:shadow-md transition-all duration-300">
+                  <Shield className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">3. DMARC</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <h3 className="font-semibold text-sm mb-1 text-emerald-900">3. DMARC</h3>
+                    <p className="text-xs text-slate-600">
                       Checks email authentication
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-3 p-4 rounded-lg bg-secondary/50">
-                  <XCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+                <div className="flex gap-3 p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200/50 hover:shadow-md transition-all duration-300">
+                  <XCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-sm mb-1">4. SMTP</h3>
-                    <p className="text-xs text-muted-foreground">
+                    <h3 className="font-semibold text-sm mb-1 text-emerald-900">4. SMTP</h3>
+                    <p className="text-xs text-slate-600">
                       Simulates delivery
                     </p>
                   </div>

@@ -82,16 +82,16 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
   };
 
   return (
-    <Card className="border-primary/20 shadow-lg">
+    <Card className="border-emerald-200/60 shadow-xl shadow-emerald-900/5 bg-white/80 backdrop-blur-sm">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Verification Results</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-emerald-900">Verification Results</CardTitle>
+            <CardDescription className="text-slate-600">
               {filteredResults.length} of {results.length} results shown
             </CardDescription>
           </div>
-          <Button onClick={handleExport} variant="outline" size="sm">
+          <Button onClick={handleExport} variant="outline" size="sm" className="border-emerald-300 text-emerald-900 hover:bg-emerald-50">
             <Download className="w-4 h-4 mr-2" />
             Export Results
           </Button>
@@ -114,6 +114,7 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
               variant={filter === "all" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter("all")}
+              className={filter === "all" ? "bg-emerald-900 hover:bg-emerald-800" : "border-emerald-300 text-emerald-900 hover:bg-emerald-50"}
             >
               All
             </Button>
@@ -121,6 +122,7 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
               variant={filter === "valid" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter("valid")}
+              className={filter === "valid" ? "bg-emerald-900 hover:bg-emerald-800" : "border-emerald-300 text-emerald-900 hover:bg-emerald-50"}
             >
               Valid
             </Button>
@@ -128,14 +130,14 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
               variant={filter === "invalid" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter("invalid")}
+              className={filter === "invalid" ? "bg-emerald-900 hover:bg-emerald-800" : "border-emerald-300 text-emerald-900 hover:bg-emerald-50"}
             >
               Invalid
             </Button>
           </div>
         </div>
 
-        {/* Results Table */}
-        <div className="rounded-md border">
+        <div className="rounded-xl border border-emerald-200/60 overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -168,8 +170,8 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                         variant={result.can_send === "yes" ? "default" : "destructive"}
                         className={
                           result.can_send === "yes"
-                            ? "bg-success text-success-foreground"
-                            : ""
+                            ? "bg-emerald-600 text-white"
+                            : "bg-red-600 text-white"
                         }
                       >
                         {result.can_send}
@@ -178,13 +180,14 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                     <TableCell className="text-center">
                       <Badge
                         variant={
-                          result.status === "valid" ? "default" : 
-                          result.status === "risky" ? "secondary" : 
+                          result.status === "valid" ? "default" :
+                          result.status === "risky" ? "secondary" :
                           result.status === "invalid" ? "destructive" : "outline"
                         }
                         className={
-                          result.status === "valid" ? "bg-success text-success-foreground" :
-                          result.status === "risky" ? "bg-warning text-warning-foreground" : ""
+                          result.status === "valid" ? "bg-emerald-600 text-white" :
+                          result.status === "risky" ? "bg-amber-500 text-white" :
+                          result.status === "invalid" ? "bg-red-600 text-white" : ""
                         }
                       >
                         {result.status}
@@ -192,60 +195,60 @@ export const ResultsTable = ({ results }: ResultsTableProps) => {
                     </TableCell>
                     <TableCell className="text-center">
                       <span className={`font-semibold ${
-                        result.smtp_score >= 90 ? "text-success" :
-                        result.smtp_score >= 60 ? "text-warning" :
-                        "text-destructive"
+                        result.smtp_score >= 90 ? "text-emerald-600" :
+                        result.smtp_score >= 60 ? "text-amber-500" :
+                        "text-red-600"
                       }`}>
                         {result.smtp_score}
                       </span>
                     </TableCell>
                     <TableCell className="text-center">
                       {result.syntax_valid ? (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-destructive mx-auto" />
+                        <XCircle className="w-4 h-4 text-red-600 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.domain_exists ? (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-destructive mx-auto" />
+                        <XCircle className="w-4 h-4 text-red-600 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.mx_found ? (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-destructive mx-auto" />
+                        <XCircle className="w-4 h-4 text-red-600 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.dmarc_valid ? (
-                        <Shield className="w-4 h-4 text-success mx-auto" />
+                        <Shield className="w-4 h-4 text-emerald-600 mx-auto" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-muted-foreground mx-auto" />
+                        <XCircle className="w-4 h-4 text-slate-400 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.disposable ? (
-                        <AlertTriangle className="w-4 h-4 text-destructive mx-auto" />
+                        <AlertTriangle className="w-4 h-4 text-red-600 mx-auto" />
                       ) : (
-                        <CheckCircle className="w-4 h-4 text-success mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-emerald-600 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.role_account ? (
-                        <Mail className="w-4 h-4 text-warning mx-auto" />
+                        <Mail className="w-4 h-4 text-amber-500 mx-auto" />
                       ) : (
-                        <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-slate-400 mx-auto" />
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {result.catch_all ? (
-                        <AlertTriangle className="w-4 h-4 text-warning mx-auto" />
+                        <AlertTriangle className="w-4 h-4 text-amber-500 mx-auto" />
                       ) : (
-                        <CheckCircle className="w-4 h-4 text-muted-foreground mx-auto" />
+                        <CheckCircle className="w-4 h-4 text-slate-400 mx-auto" />
                       )}
                     </TableCell>
                   </TableRow>
