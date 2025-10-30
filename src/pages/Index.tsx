@@ -9,8 +9,8 @@ import { Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 // Supabase configuration
-const SUPABASE_URL = "https://rrbfytfnqgdpprtjwjba.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJyYmZ5dGZucWdkcHBydGp3amJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA3Nzg3ODksImV4cCI6MjA3NjM1NDc4OX0.K1cmCehVSh6-7f--oCPliGHdJihLibRl-U-MBC7CqUc";
+const SUPABASE_URL = "https://otdvogmkfvhlhqdgkppa.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im90ZHZvZ21rZnZobGhxZGdrcHBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2Njk5MTQsImV4cCI6MjA3NzI0NTkxNH0.nMaHLKtIxFowd45tuVZdLRmHRJI5HDC641Y_iqt39ss";
 
 export interface VerificationResult {
   email: string;
