@@ -6,8 +6,11 @@ import { VerificationProgress } from "@/components/verification/VerificationProg
 import { ResultsTable } from "@/components/verification/ResultsTable";
 import { SummaryStats } from "@/components/verification/SummaryStats";
 import { Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+// Supabase configuration
+const SUPABASE_URL = "https://rrbfytfnqgdpprtjwjba.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJyYmZ5dGZucWdkcHBydGp3amJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA3Nzg3ODksImV4cCI6MjA3NjM1NDc4OX0.K1cmCehVSh6-7f--oCPliGHdJihLibRl-U-MBC7CqUc";
 
 export interface VerificationResult {
   email: string;
@@ -108,10 +111,19 @@ const Index = () => {
         else if (overallProgress < 75) setCurrentStage("dmarc");
         else setCurrentStage("smtp");
         
-        // Process this chunk
-        const { data: chunkData, error: chunkError } = await supabase.functions.invoke('verify-emails', {
-          body: { emails: emailChunk }
+        // Process this chunk using direct HTTP call
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-emails`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ emails: emailChunk })
         });
+        
+        const chunkData = response.ok ? await response.json() : null;
+        const chunkError = response.ok ? null : new Error(`HTTP ${response.status}: ${response.statusText}`);
         
         if (chunkError) {
           console.error(`Chunk ${chunkIndex + 1} failed:`, chunkError);
