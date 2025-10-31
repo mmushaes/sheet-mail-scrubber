@@ -38,34 +38,6 @@ const Index = () => {
   const [estimatedTime, setEstimatedTime] = useState<string>("");
   const [startTime, setStartTime] = useState<number>(0);
 
-  const fetchEmailsFromSheet = async (sheetsUrl: string): Promise<string[]> => {
-    // Convert Google Sheets URL to CSV export URL
-    const sheetId = sheetsUrl.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1];
-    if (!sheetId) {
-      throw new Error('Invalid Google Sheets URL');
-    }
-    
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-    const response = await fetch(csvUrl);
-    const csvText = await response.text();
-    
-    // Parse CSV and extract emails (assuming first column)
-    const lines = csvText.split('\n');
-    const emails: string[] = [];
-    
-    // Skip header row (row 0), start from row 1
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line) {
-        const email = line.split(',')[0].replace(/"/g, '').trim();
-        if (email && email.includes('@')) {
-          emails.push(email);
-        }
-      }
-    }
-    
-    return emails;
-  };
 
   const handleStartVerification = async (sheetsUrl: string) => {
     setIsProcessing(true);
@@ -77,77 +49,42 @@ const Index = () => {
     setStartTime(Date.now());
 
     try {
-      // Step 1: Fetch ALL emails from sheet directly
-      console.log('Fetching all emails from sheet...');
-      const allEmails = await fetchEmailsFromSheet(sheetsUrl);
+      console.log('Starting verification with Google Sheets URL...');
+      setCurrentStage("syntax");
       
-      if (allEmails.length === 0) {
-        throw new Error('No emails found in the sheet');
-      }
-
-      const CHUNK_SIZE = 1000;
-      const totalChunks = Math.ceil(allEmails.length / CHUNK_SIZE);
+      // Call edge function with sheetsUrl - it will fetch and process server-side
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-emails`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ sheetsUrl })
+      });
       
-      setTotalEmails(allEmails.length);
-      setEstimatedTime(`${Math.ceil((allEmails.length / 1000) * 0.9)} min`);
-      
-      console.log(`Processing ${allEmails.length} emails in ${totalChunks} chunks`);
-      toast.info(`Processing ${allEmails.length} emails in ${totalChunks} chunks...`);
-      
-      let allResults: VerificationResult[] = [];
-      
-      // Step 2: Process each chunk of 1000 emails
-      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-        const start = chunkIndex * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, allEmails.length);
-        const emailChunk = allEmails.slice(start, end);
-        
-        console.log(`Processing chunk ${chunkIndex + 1}/${totalChunks} (${emailChunk.length} emails)`);
-        
-        // Update stage based on progress
-        const overallProgress = (start / allEmails.length) * 100;
-        if (overallProgress < 25) setCurrentStage("syntax");
-        else if (overallProgress < 50) setCurrentStage("dns");
-        else if (overallProgress < 75) setCurrentStage("dmarc");
-        else setCurrentStage("smtp");
-        
-        // Process this chunk using direct HTTP call
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-emails`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'apikey': SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ emails: emailChunk })
-        });
-        
-        const chunkData = response.ok ? await response.json() : null;
-        const chunkError = response.ok ? null : new Error(`HTTP ${response.status}: ${response.statusText}`);
-        
-        if (chunkError) {
-          console.error(`Chunk ${chunkIndex + 1} failed:`, chunkError);
-          toast.error(`Chunk ${chunkIndex + 1} failed. Continuing with remaining chunks...`);
-          continue;
-        }
-        
-        if (chunkData?.results) {
-          const processedResults = chunkData.results.map((result: VerificationResult) => ({
-            ...result,
-            can_send: (result.status === "valid" || result.status === "risky") ? "yes" : "no"
-          }));
-          
-          allResults = [...allResults, ...processedResults];
-          setResults(allResults);
-          setProcessedEmails(allResults.length);
-          setProgress((allResults.length / allEmails.length) * 100);
-          
-          toast.success(`Chunk ${chunkIndex + 1}/${totalChunks} complete (${allResults.length}/${allEmails.length} emails)`);
-        }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
-      setProgress(100);
-      toast.success(`✅ Verified ${allResults.length} emails across ${totalChunks} chunks!`);
+      const data = await response.json();
+      
+      if (data?.results) {
+        const processedResults = data.results.map((result: VerificationResult) => ({
+          ...result,
+          can_send: (result.status === "valid" || result.status === "risky") ? "yes" : "no"
+        }));
+        
+        setResults(processedResults);
+        setTotalEmails(processedResults.length);
+        setProcessedEmails(processedResults.length);
+        setProgress(100);
+        
+        toast.success(`✅ Verified ${processedResults.length} emails!`);
+      } else {
+        throw new Error('No results returned from verification');
+      }
       
     } catch (error: any) {
       console.error('Verification error:', error);
